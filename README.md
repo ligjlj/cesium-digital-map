@@ -69,3 +69,54 @@ npm run build
 - **底图 / 工程**：`mapControl`、比例尺模块与 `package-lock` 等随上述能力调整；`.env.example` 补充天地图可选最大级别说明（缓解 429）。
 - **规范文档**：`cursor.md` 与当前实现（专题栅格 + 世界文件、打包目录要求）对齐。
 - **资源**：增补 `行政区划图.png` 等地图相关素材（按仓库内 `public/map/` 与 `map/` 实际路径使用）。
+
+## 8. 方案 B：GeoTIFF 专题图离线切片（推荐）
+
+当专题图是大体积 GeoTIFF（例如 `public/map/global_pop_2025_CN_1km_R2025A_UA_v1.tif` 约 289MB）时，不建议浏览器端“直接加载 tif”。最佳实践是 **离线切成 XYZ 瓦片**，前端用 `UrlTemplateImageryProvider` 按需加载。
+
+### 8.1 离线切片（GDAL）
+
+准备：安装 GDAL（QGIS 自带 / OSGeo4W / conda 都可）。
+
+- **方式一：直接切 Web Mercator（常用）**
+
+```bash
+gdal2tiles.py -z 0-8 -w none -r bilinear -p mercator ^
+  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_CN_1km_R2025A_UA_v1.tif" ^
+  "d:\cursor_code\cesium-digital-map\public\tiles-pop"
+```
+
+- **方式二：先重投影到 EPSG:3857 再切（更稳，适合源数据坐标不确定时）**
+
+```bash
+gdalwarp -t_srs EPSG:3857 -r bilinear -of GTiff ^
+  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_CN_1km_R2025A_UA_v1.tif" ^
+  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_3857.tif"
+
+gdal2tiles.py -z 0-8 -w none -r bilinear -p mercator ^
+  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_3857.tif" ^
+  "d:\cursor_code\cesium-digital-map\public\tiles-pop"
+```
+
+输出期望结构（XYZ）：
+
+```
+public/tiles-pop/{z}/{x}/{y}.png
+```
+
+提示：
+- `-z 0-8` 先小范围试跑，确认显示正常再提高级别；级别越高，瓦片数量增长越快。
+- 若切出来是 TMS（y 方向翻转）而不是 XYZ，需要在 Cesium 的 URL 模板里用 `{reverseY}`，或改切片工具输出为 XYZ。
+
+### 8.2 Cesium 端加载（按需请求瓦片）
+
+思路：把瓦片作为一个“专题影像层”叠加到 `viewer.imageryLayers`。
+
+URL 模板示例：
+- `"/tiles-pop/{z}/{x}/{y}.png"`（XYZ）
+- `"/tiles-pop/{z}/{x}/{reverseY}.png"`（TMS 反 y）
+
+后续落地时建议：
+- 点击「加载/刷新」时创建并添加该瓦片图层（可设置 `alpha`）
+- 点击「清空」时移除该瓦片图层
+- 加载后 `flyTo` 到瓦片覆盖范围（可用预设 `Cesium.Rectangle` 或从元数据中读取）
