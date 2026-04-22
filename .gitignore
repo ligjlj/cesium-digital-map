@@ -3,3 +3,72 @@ dist/
 .env.local
 .env.*.local
 
+/cursor.md
+
+# ------------------------------
+# Large datasets / GIS sources (do not commit)
+# ------------------------------
+/map/
+*.tif
+*.tiff
+*.ovr
+*.img
+*.bil
+*.bsq
+*.bip
+*.jp2
+*.ecw
+*.mxd
+*.aprx
+*.qgz
+*.qgs
+
+# Shapefile / vector source bundles
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sbn
+*.sbx
+*.qix
+*.shp.xml
+
+# GeoPackage / FileGDB
+*.gpkg
+*.gdb/
+
+# Offline tiles / caches (often huge)
+tiles/
+public/tiles/
+
+# ------------------------------
+# Privacy / credentials (do not commit)
+# ------------------------------
+.env
+.env.*
+*.local
+*.log
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
+id_rsa
+id_rsa.pub
+
+credentials*.json
+*secret*
+*secrets*
+*token*
+*apikey*
+*api_key*
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db

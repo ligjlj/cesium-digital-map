@@ -73,6 +73,14 @@ export function createCameraController(viewer) {
       height: 3200,
       heading: 40,
       pitch: -40
+    },
+    // 深圳（福田中心区附近）
+    shenzhen: {
+      lon: 114.0579,
+      lat: 22.5431,
+      height: 3200,
+      heading: 40,
+      pitch: -40
     }
   };
 
