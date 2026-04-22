@@ -116,7 +116,7 @@ document.getElementById("btnLoadThematic")?.addEventListener("click", async () =
       blackThreshold: 24,
       transparentWhite: false
     });
-    cameraController.cancelPatrol();
+    cameraController.stopPatrol?.();
     setFlyRoamUiEnabled(false);
   } catch (err) {
     console.error("[Thematic] 加载失败：", err);

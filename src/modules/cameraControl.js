@@ -178,6 +178,16 @@ export function createCameraController(viewer) {
   }
 
   /**
+   * 停止漫游/飞行：结束巡回与飞行，但不改变当前视角。
+   * 用于在业务逻辑（例如加载专题图后自动 flyTo）中避免被“回初始点”覆盖。
+   */
+  function stopPatrol() {
+    viewer.camera.cancelFlight();
+    if (stopPatrolFn) stopPatrolFn();
+    isPatrolActive = false;
+  }
+
+  /**
    * 返回初始点（不关心当前是否在巡回）
    */
   function returnToInitial() {
@@ -193,6 +203,7 @@ export function createCameraController(viewer) {
     flyToPreset,
     patrolAbovePreset,
     cancelPatrol,
+    stopPatrol,
     returnToInitial
   };
 }
