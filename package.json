@@ -1,0 +1,20 @@
+{
+  "name": "cesium-digital-map",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "postbuild": "node scripts/postbuild-cesium.js",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "dependencies": {
+    "cesium": "^1.133.1"
+  },
+  "devDependencies": {
+    "vite": "^7.1.1",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}
+

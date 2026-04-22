@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "name": "sample-points",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "示例点A", "value": 18, "desc": "低值样例" },
+      "geometry": { "type": "Point", "coordinates": [116.3913, 39.9075] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "示例点B", "value": 35, "desc": "中低值样例" },
+      "geometry": { "type": "Point", "coordinates": [116.4100, 39.9200] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "示例点C", "value": 62, "desc": "中高值样例" },
+      "geometry": { "type": "Point", "coordinates": [116.4500, 39.9100] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "示例点D", "value": 88, "desc": "高值样例" },
+      "geometry": { "type": "Point", "coordinates": [116.4687, 39.9149] }
+    }
+  ]
+}
+

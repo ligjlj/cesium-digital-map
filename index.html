@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cesium 数字地球与专题图（纯本地化）</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="topbar">
+        <div class="group">
+          <span class="label">底图</span>
+          <select id="selectBaseMap" class="select" title="底图切换">
+            <option value="tianditu">天地图</option>
+            <option value="gaode">高德</option>
+            <option value="offline">离线瓦片</option>
+          </select>
+        </div>
+        <div class="group">
+          <span class="label">漫游</span>
+          <select id="selectFlyPreset" class="select" title="漫游预设点">
+            <option value="gugong">故宫</option>
+            <option value="changcheng">长城</option>
+            <option value="shanghai">上海</option>
+          </select>
+          <button id="btnFlyGo" class="btn">漫游</button>
+          <button id="btnFlyCancel" class="btn btn-danger">取消</button>
+        </div>
+        <div class="group">
+          <span class="label">专题图</span>
+          <button id="btnLoadThematic" class="btn">加载/刷新</button>
+          <button id="btnClearThematic" class="btn">清空</button>
+        </div>
+      </div>
+
+      <div id="cesiumContainer" class="viewer"></div>
+      <div id="tooltip" class="tooltip hidden"></div>
+      <div id="scaleBar" class="scale-bar" aria-label="比例尺">
+        <div id="scaleBarLabel" class="scale-bar-label">--</div>
+        <div class="scale-bar-track" aria-hidden="true">
+          <div class="scale-bar-tick scale-bar-tick-left"></div>
+          <div class="scale-bar-tick scale-bar-tick-mid"></div>
+          <div class="scale-bar-tick scale-bar-tick-right"></div>
+          <div id="scaleBarFill" class="scale-bar-fill">
+            <div class="scale-bar-segments" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+      <div id="legend" class="legend hidden" aria-label="专题图图例">
+        <div class="legend-label legend-label-high">High</div>
+        <div class="legend-ramp" role="img" aria-label="色带：Low 到 High"></div>
+        <div class="legend-label legend-label-low">Low</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+
