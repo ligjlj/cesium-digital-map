@@ -172,6 +172,35 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
   }
 
   /**
+   * 给矩形范围增加一点边距，避免“贴边”导致观感过紧。
+   * @param {Cesium.Rectangle} rect
+   * @param {{ padRatio?: number; minPadDeg?: number; maxPadDeg?: number }} [opts]
+   */
+  function padRectangle(rect, opts = {}) {
+    const padRatio = opts.padRatio ?? 0.12;
+    const minPadDeg = opts.minPadDeg ?? 0.08;
+    const maxPadDeg = opts.maxPadDeg ?? 8;
+
+    const westDeg = Cesium.Math.toDegrees(rect.west);
+    const eastDeg = Cesium.Math.toDegrees(rect.east);
+    const southDeg = Cesium.Math.toDegrees(rect.south);
+    const northDeg = Cesium.Math.toDegrees(rect.north);
+
+    const widthDeg = Math.max(0.000001, eastDeg - westDeg);
+    const heightDeg = Math.max(0.000001, northDeg - southDeg);
+
+    const padX = Math.min(maxPadDeg, Math.max(minPadDeg, widthDeg * padRatio));
+    const padY = Math.min(maxPadDeg, Math.max(minPadDeg, heightDeg * padRatio));
+
+    return Cesium.Rectangle.fromDegrees(
+      westDeg - padX,
+      southDeg - padY,
+      eastDeg + padX,
+      northDeg + padY
+    );
+  }
+
+  /**
    * 由世界文件与像素宽高计算经纬度矩形。
    * @param {string} worldFileUrl
    * @param {number} width
@@ -329,8 +358,8 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
 
     const dest = unionRectangles(rectangles);
     viewer.camera.flyTo({
-      destination: dest,
-      duration: 1.2
+      destination: padRectangle(dest, { padRatio: 0.14, minPadDeg: 0.12 }),
+      duration: 1.35
     });
 
     return singleTileLayers.slice();
