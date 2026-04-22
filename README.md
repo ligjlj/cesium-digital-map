@@ -120,3 +120,45 @@ URL 模板示例：
 - 点击「加载/刷新」时创建并添加该瓦片图层（可设置 `alpha`）
 - 点击「清空」时移除该瓦片图层
 - 加载后 `flyTo` 到瓦片覆盖范围（可用预设 `Cesium.Rectangle` 或从元数据中读取）
+
+### 8.3 QGIS 生成离线瓦片（XYZ/TMS）方案
+
+如果你更习惯 GUI 流程，可以用 QGIS（3.x）把 GeoTIFF 做成离线瓦片。总体原则仍然是：
+- **先做好渲染样式（颜色带/透明度）**，再导出瓦片；瓦片输出的是“渲染后的图片”，不是原始像元值。
+- 数字地球里通常用 **Web Mercator（EPSG:3857）** 的瓦片最通用。
+
+#### 方式 A：导出到文件夹（静态 `{z}/{x}/{y}.png`，最适合放到 `public/`）
+
+1. 在 QGIS 打开 `global_pop_2025_CN_1km_R2025A_UA_v1.tif`。
+2. 给栅格设置样式（例如单波段伪彩色、分级、透明背景等）。
+3. **重投影（推荐）**：右键图层 → 导出 → 另存为…  
+   - CRS 选 `EPSG:3857 - WGS 84 / Pseudo-Mercator`
+   - 输出得到一个 `*_3857.tif`（便于后续切片与对齐）
+4. 生成瓦片（不同版本 QGIS 菜单名称可能略有差异，常见入口）：
+   - 处理工具箱（Processing Toolbox）里搜索 **“XYZ tiles / 生成 XYZ 瓦片 / gdal2tiles”**  
+   - 设置：
+     - 输入栅格：`*_3857.tif`
+     - 输出目录：例如 `d:\cursor_code\cesium-digital-map\public\tiles-pop`
+     - 缩放级别：先用 `0-8`（确认 OK 再加）
+     - 格式：PNG（需要透明时）或 JPG（更小）
+     - 方案：优先 **XYZ**（若只能导出 TMS，则 Cesium 端用 `{reverseY}`）
+5. 产物检查：确认存在 `public/tiles-pop/0/0/0.png` 等文件。
+
+前端使用（XYZ）：
+- `"/tiles-pop/{z}/{x}/{y}.png"`
+
+若导出为 TMS（y 反向）：
+- `"/tiles-pop/{z}/{x}/{reverseY}.png"`
+
+#### 方式 B：导出 MBTiles（单文件，便于携带/发布，但需要服务或转换）
+
+1. 在 QGIS 按上述步骤完成样式与（推荐）重投影到 `EPSG:3857`。
+2. 导出瓦片到 **MBTiles**（Processing Toolbox 里搜索 “MBTiles / XYZ / gdal2tiles” 等相关工具）：
+   - 输出：例如 `d:\cursor_code\cesium-digital-map\public\tiles-pop.mbtiles`
+3. 使用方式二选一：
+   - 启一个本地瓦片服务把 MBTiles 对外提供为 `/{z}/{x}/{y}.png`（适合局域网部署）
+   - 或把 MBTiles **解包/转换**成目录瓦片，再按方式 A 放到 `public/tiles-pop/`
+
+提示：
+- 不要一开始就切太高层级（例如 0-14），瓦片数量会非常大；先 `0-8` 验证效果最重要。
+- 如果你后续希望在 Cesium 里做“自动 zoom 到瓦片范围”，建议在导出时记录范围（或用数据本身外接矩形），代码侧用 `Cesium.Rectangle` 来 flyTo。
