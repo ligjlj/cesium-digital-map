@@ -49,4 +49,3 @@ npm run build
 要求：`dist/` 内包含 Cesium 的 `Assets/Workers/Widgets` 等资源（由 `vite-plugin-cesium` 处理）。
 
 将 `dist/` 交给 Nginx 托管即可在 **无外网** 局域网环境运行（前提是你使用的底图资源本身可在局域网访问或为离线瓦片）。
-
