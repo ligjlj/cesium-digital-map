@@ -6,10 +6,74 @@ import * as Cesium from "cesium";
  * - 屏幕底部附近取两点估算地面距离，动态更新标称长度与黑白分段条宽度
  * - 单位随距离在 m / km 间切换
  */
-export function createScaleBar(viewer, { labelEl, barEl, maxWidthPx = 140 }) {
+export function createScaleBar(viewer, { rootEl, labelEl, barEl, maxWidthPx = 140 } = {}) {
   const scene = viewer.scene;
   const canvas = scene.canvas;
   const globe = scene.globe;
+
+  // ---------- 拖动缩放（低灵敏度） ----------
+  // 通过“相机高度”实现缩放；横向拖动越多，缩放变化越明显（但系数刻意调低）
+  const minHeight = 900; // ~0.9km
+  const maxHeight = 12_000_000; // ~12,000km
+  const dragK = 0.0018; // 越小越不灵敏
+
+  /** @type {{active:boolean; startX:number; startHeight:number; raf:number|null; nextX:number}|null} */
+  let drag = null;
+
+  function clampHeight(h) {
+    return Math.max(minHeight, Math.min(maxHeight, h));
+  }
+
+  function applyDragZoom(deltaX) {
+    const camera = viewer.camera;
+    const c = camera.positionCartographic;
+    // 以指数缩放：左拖放大(高度变小)，右拖缩小(高度变大)
+    const targetHeight = clampHeight(drag.startHeight * Math.exp(deltaX * dragK));
+    const nextHeight = c.height + (targetHeight - c.height) * 0.14; // 平滑一点，避免“太灵”
+
+    camera.setView({
+      destination: Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, nextHeight),
+      orientation: {
+        heading: camera.heading,
+        pitch: camera.pitch,
+        roll: camera.roll
+      }
+    });
+  }
+
+  function onPointerDown(e) {
+    if (!rootEl) return;
+    // 只响应主键/触摸
+    if (e.button != null && e.button !== 0) return;
+    rootEl.setPointerCapture?.(e.pointerId);
+    drag = {
+      active: true,
+      startX: e.clientX,
+      startHeight: viewer.camera.positionCartographic.height,
+      raf: null,
+      nextX: e.clientX
+    };
+    e.preventDefault?.();
+  }
+
+  function onPointerMove(e) {
+    if (!drag?.active) return;
+    drag.nextX = e.clientX;
+    if (drag.raf != null) return;
+    drag.raf = requestAnimationFrame(() => {
+      drag.raf = null;
+      applyDragZoom(drag.nextX - drag.startX);
+    });
+  }
+
+  function endDrag(e) {
+    if (!drag?.active) return;
+    try {
+      rootEl?.releasePointerCapture?.(e.pointerId);
+    } catch {}
+    if (drag.raf != null) cancelAnimationFrame(drag.raf);
+    drag = null;
+  }
 
   function formatDistance(meters) {
     if (meters >= 1000) {
@@ -65,9 +129,22 @@ export function createScaleBar(viewer, { labelEl, barEl, maxWidthPx = 140 }) {
   scene.postRender.addEventListener(update);
   update();
 
+  if (rootEl) {
+    rootEl.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", endDrag, { passive: true });
+    window.addEventListener("pointercancel", endDrag, { passive: true });
+  }
+
   return {
     destroy() {
       scene.postRender.removeEventListener(update);
+      if (rootEl) {
+        rootEl.removeEventListener("pointerdown", onPointerDown);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", endDrag);
+        window.removeEventListener("pointercancel", endDrag);
+      }
     }
   };
 }

@@ -67,6 +67,7 @@ const thematicLayer = createThematicLayer(viewer, {
 
 // 常态比例尺（随地图缩放实时更新）
 createScaleBar(viewer, {
+  rootEl: document.getElementById("scaleBar"),
   labelEl: document.getElementById("scaleBarLabel"),
   barEl: document.getElementById("scaleBarBar"),
   maxWidthPx: 140

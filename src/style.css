@@ -142,6 +142,12 @@ body,
   letter-spacing: 0.2px;
 }
 
+/* 右下角读数容器默认不可交互；对比例尺单独放开 */
+.scale-bar {
+  pointer-events: auto;
+  cursor: ew-resize; /* 拖动缩放 */
+}
+
 /* 专题图加载后：漫游分区禁用态 */
 .control-section.is-disabled {
   opacity: 0.38;
@@ -295,6 +301,12 @@ body,
   gap: 12px;
   pointer-events: none;
   user-select: none;
+}
+
+/* 让比例尺可拖动交互（容器仍保持穿透） */
+.readouts-anchor .scale-bar {
+  pointer-events: auto;
+  cursor: ew-resize;
 }
 
 /* ---------- GIS 图例：连续色带 + 右侧刻度 ---------- */
