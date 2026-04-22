@@ -188,6 +188,32 @@ export function createCameraController(viewer) {
   }
 
   /**
+   * 强制中断当前相机操作并“回正”。
+   * - 立刻取消飞行/巡回（含 lookAtTransform）
+   * - 保持当前位置不变，仅将姿态设为：北向 + 俯视（heading=0, pitch=-90）
+   *
+   * 适用：任何时刻加载专题图，先中断一切相机动作，避免卡住或被覆盖。
+   */
+  function interruptAndUpright() {
+    // 先停止所有正在进行的飞行/巡回
+    viewer.camera.cancelFlight();
+    if (stopPatrolFn) stopPatrolFn();
+    isPatrolActive = false;
+
+    // 再将相机姿态“回正”（保持当前位置）
+    const c = viewer.camera.positionCartographic;
+    viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, c.height),
+      orientation: {
+        heading: 0,
+        pitch: Cesium.Math.toRadians(-90),
+        roll: 0
+      }
+    });
+  }
+
+  /**
    * 返回初始点（不关心当前是否在巡回）
    */
   function returnToInitial() {
@@ -204,6 +230,7 @@ export function createCameraController(viewer) {
     patrolAbovePreset,
     cancelPatrol,
     stopPatrol,
+    interruptAndUpright,
     returnToInitial
   };
 }

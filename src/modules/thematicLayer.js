@@ -322,7 +322,7 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
    * 按顺序叠加多幅带世界文件的专题栅格（数组前者在下、后者在上）。
    *
    * @param {object[]} tileSpecs 每项字段同 {@link buildAndAddSingleTile}
-   * @returns {Promise<Cesium.ImageryLayer[]>}
+   * @returns {Promise<{ layers: Cesium.ImageryLayer[]; rectangle: Cesium.Rectangle }>}
    */
   async function loadSingleTileStack(tileSpecs) {
     if (!Array.isArray(tileSpecs) || tileSpecs.length === 0) {
@@ -357,12 +357,10 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
     showLegend();
 
     const dest = unionRectangles(rectangles);
-    viewer.camera.flyTo({
-      destination: padRectangle(dest, { padRatio: 0.14, minPadDeg: 0.12 }),
-      duration: 1.35
-    });
-
-    return singleTileLayers.slice();
+    return {
+      layers: singleTileLayers.slice(),
+      rectangle: padRectangle(dest, { padRatio: 0.14, minPadDeg: 0.12 })
+    };
   }
 
   /**
