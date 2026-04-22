@@ -214,6 +214,18 @@ export function createCameraController(viewer) {
   }
 
   /**
+   * 强制中断当前相机操作（不改变当前视角）。
+   * - 立刻取消飞行/巡回
+   * - 解除 lookAtTransform，避免漫游途中“卡住”
+   */
+  function interrupt() {
+    viewer.camera.cancelFlight();
+    if (stopPatrolFn) stopPatrolFn();
+    isPatrolActive = false;
+    viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+  }
+
+  /**
    * 返回初始点（不关心当前是否在巡回）
    */
   function returnToInitial() {
@@ -230,6 +242,7 @@ export function createCameraController(viewer) {
     patrolAbovePreset,
     cancelPatrol,
     stopPatrol,
+    interrupt,
     interruptAndUpright,
     returnToInitial
   };

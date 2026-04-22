@@ -108,8 +108,8 @@ document.getElementById("btnLoadThematic")?.addEventListener("click", async () =
   // 专题图影像（SingleTileImageryProvider）
   // 注意：tif2.png 必须放在 public/map/中国_省/ 下，才能通过 /map/... 访问
   try {
-    // 任何时刻加载专题图：立刻中断现有相机操作 + 回正
-    cameraController.interruptAndUpright?.();
+    // 任何时刻加载专题图：立刻中断现有相机操作（不回正）
+    cameraController.interrupt?.();
 
     const { rectangle } = await thematicLayer.loadSingleTile({
       imageUrl: "/map/tif2.png",
@@ -122,14 +122,9 @@ document.getElementById("btnLoadThematic")?.addEventListener("click", async () =
     setFlyRoamUiEnabled(false);
 
     // 再次确保不受任何残留飞行/漫游影响，然后 zoom 到专题范围
-    cameraController.interruptAndUpright?.();
+    cameraController.interrupt?.();
     viewer.camera.flyTo({
       destination: rectangle,
-      orientation: {
-        heading: 0,
-        pitch: Cesium.Math.toRadians(-90),
-        roll: 0
-      },
       duration: 1.35
     });
   } catch (err) {
