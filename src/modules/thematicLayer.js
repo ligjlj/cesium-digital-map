@@ -1,18 +1,20 @@
 import * as Cesium from "cesium";
 
 /**
- * 专题图图层（GeoJSON）
- * - 从 public/data/ 加载本地 GeoJSON
- * - 基于属性值进行分级渲染（色阶）
- * - 点击要素弹出自定义 HTML Tooltip，点击空白处关闭
+ * 专题图图层
+ * - 栅格：一幅或多幅 SingleTileImageryProvider；可有世界文件，或与上一层同范围（仅 PNG）
+ * - 抠图：近黑 / 近白背景可转透明（Canvas 预处理）
+ * - 矢量（可选）：public/data/ GeoJSON，属性驱动样式与点击 Tooltip
  */
 export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
   /** @type {Cesium.GeoJsonDataSource | null} */
   let dataSource = null;
   /** @type {Cesium.ScreenSpaceEventHandler | null} */
   let handler = null;
-  /** @type {Cesium.ImageryLayer | null} */
-  let singleTileLayer = null;
+  /** @type {Cesium.ImageryLayer[]} */
+  let singleTileLayers = [];
+  /** @type {string[]} */
+  let singleTileBlobUrls = [];
 
   function showLegend() {
     if (!legendEl) return;
@@ -143,96 +145,285 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
     return dataSource;
   }
 
-  /**
-   * 使用 SingleTileImageryProvider 加载一张“带地理定位”的专题图图片。
-   *
-   * 推荐配套文件：
-   * - tif2.png：专题图图片（放到 public/ 下，才能通过 /xxx 访问）
-   * - tif2.pgw：世界文件（6 行参数：像素大小/旋转/原点），用于从图片像素坐标推算经纬度范围
-   *
-   * 加载流程：
-   * - 先读取图片 naturalWidth/naturalHeight（得到像素尺寸）
-   * - 再读取 pgw 六参数（得到像素到经纬度的仿射关系）
-   * - 计算四至范围 west/south/east/north，传给 SingleTileImageryProvider.rectangle
-   *
-   * @param {{ imageUrl: string; worldFileUrl: string; alpha?: number }} options
-   */
-  async function loadSingleTile(options) {
-    const { imageUrl, worldFileUrl, alpha = 0.85 } = options;
-
-    // 移除旧的 single tile
-    if (singleTileLayer) {
-      viewer.imageryLayers.remove(singleTileLayer, true);
-      singleTileLayer = null;
+  function clearSingleTileImagery() {
+    for (const layer of singleTileLayers) {
+      viewer.imageryLayers.remove(layer, true);
     }
-    hideLegend();
+    singleTileLayers.length = 0;
+    for (const url of singleTileBlobUrls) {
+      URL.revokeObjectURL(url);
+    }
+    singleTileBlobUrls.length = 0;
+  }
 
-    // 图片尺寸（像素）
-    const { width, height } = await loadImageSize(imageUrl);
-    // 世界文件参数（经纬度/像素）
+  /**
+   * @param {Cesium.Rectangle[]} rects
+   * @returns {Cesium.Rectangle}
+   */
+  function unionRectangles(rects) {
+    if (rects.length === 0) {
+      throw new Error("[Thematic] unionRectangles 需要至少一个范围");
+    }
+    let out = rects[0];
+    for (let i = 1; i < rects.length; i++) {
+      out = Cesium.Rectangle.union(out, rects[i], new Cesium.Rectangle());
+    }
+    return out;
+  }
+
+  /**
+   * 由世界文件与像素宽高计算经纬度矩形。
+   * @param {string} worldFileUrl
+   * @param {number} width
+   * @param {number} height
+   */
+  async function rectangleFromWorldFile(worldFileUrl, width, height) {
     const world = await loadWorldFile(worldFileUrl);
-
-    // pgw：A D B E C F（上左像素中心点坐标）
-    const A = world[0]; // pixel size x (deg/pixel)
+    const A = world[0];
     const D = world[1];
     const B = world[2];
-    const E = world[3]; // pixel size y (deg/pixel) 通常为负
-    const C = world[4]; // x of center of upper-left pixel
-    const F = world[5]; // y of center of upper-left pixel
+    const E = world[3];
+    const C = world[4];
+    const F = world[5];
 
-    // 当前仅处理无旋转的常见情况（B/D ≈ 0），否则会出现倾斜范围，需更复杂的四角计算
     if (Math.abs(B) > 1e-10 || Math.abs(D) > 1e-10) {
       console.warn("[Thematic] 世界文件包含旋转参数(B/D)，当前实现仅按无旋转处理，结果可能不准确。");
     }
 
-    // 上左像素“边界”坐标
     const west = C - A / 2;
-    const north = F - E / 2; // E 为负时，相当于 F + |E|/2
+    const north = F - E / 2;
     const east = west + A * width;
     const south = north + E * height;
 
-    // 关键校验：避免把 undefined/NaN 传进 Cesium，导致难定位的类型错误
     const nums = { west, south, east, north, A, E, C, F, width, height };
     for (const [k, v] of Object.entries(nums)) {
       if (!Number.isFinite(v)) {
         throw new Error(
           `[Thematic] 计算专题图范围失败：${k}=${String(
             v
-          )}，请检查图片是否可访问(${imageUrl})、世界文件是否正确(${worldFileUrl})`
+          )}，请检查世界文件是否正确(${worldFileUrl})`
         );
       }
     }
 
-    const rectangle = Cesium.Rectangle.fromDegrees(west, south, east, north);
+    return Cesium.Rectangle.fromDegrees(west, south, east, north);
+  }
+
+  /**
+   * 构建并添加一层 SingleTile（不清理其它层；由 loadSingleTileStack 统一清理）。
+   *
+   * @param {object} options
+   * @param {string} options.imageUrl
+   * @param {string} [options.worldFileUrl] 与 imageUrl 配套；省略时可与上一层同四至或显式 rectangleDegrees
+   * @param {boolean} [options.sameExtentAsPrevious=false] 为 true 时使用上一层矩形（仅 PNG 叠在同一范围上）
+   * @param {{ west: number; south: number; east: number; north: number }} [options.rectangleDegrees]
+   * @param {number} [options.alpha=0.9]
+   * @param {boolean} [options.transparentBlack=true]
+   * @param {number} [options.blackThreshold=24]
+   * @param {boolean} [options.transparentWhite=false]
+   * @param {number} [options.whiteThreshold=12] RGB 均 ≥ (255 - whiteThreshold) 视为白底透明
+   * @param {{ previousRectangle: Cesium.Rectangle | null }} ctx
+   * @returns {Promise<{ layer: Cesium.ImageryLayer; rectangle: Cesium.Rectangle; blobUrl: string | null }>}
+   */
+  async function buildAndAddSingleTile(options, ctx) {
+    const {
+      imageUrl,
+      worldFileUrl,
+      sameExtentAsPrevious = false,
+      rectangleDegrees,
+      alpha = 0.9,
+      transparentBlack = true,
+      blackThreshold = 24,
+      transparentWhite = false,
+      whiteThreshold = 12
+    } = options;
+
+    const { width, height } = await loadImageSize(imageUrl);
+
+    /** @type {Cesium.Rectangle} */
+    let rectangle;
+    if (worldFileUrl) {
+      rectangle = await rectangleFromWorldFile(worldFileUrl, width, height);
+    } else if (sameExtentAsPrevious && ctx.previousRectangle) {
+      rectangle = Cesium.Rectangle.clone(ctx.previousRectangle, new Cesium.Rectangle());
+    } else if (
+      rectangleDegrees &&
+      Number.isFinite(rectangleDegrees.west) &&
+      Number.isFinite(rectangleDegrees.south) &&
+      Number.isFinite(rectangleDegrees.east) &&
+      Number.isFinite(rectangleDegrees.north)
+    ) {
+      const { west, south, east, north } = rectangleDegrees;
+      rectangle = Cesium.Rectangle.fromDegrees(west, south, east, north);
+    } else {
+      throw new Error(
+        "[Thematic] 缺少定位信息：请提供 worldFileUrl、rectangleDegrees，或 sameExtentAsPrevious（且前一层已成功）"
+      );
+    }
+
+    const needMatting = transparentBlack || transparentWhite;
+    let effectiveImageUrl = imageUrl;
+    /** @type {string | null} */
+    let blobUrl = null;
+    if (needMatting) {
+      blobUrl = await rasterizeMattingPngBlobUrl(imageUrl, {
+        transparentBlack,
+        blackThreshold,
+        transparentWhite,
+        whiteThreshold
+      });
+      effectiveImageUrl = blobUrl;
+    }
 
     const provider = new Cesium.SingleTileImageryProvider({
-      url: imageUrl,
+      url: effectiveImageUrl,
       rectangle,
-      // Cesium 新版本中 tileWidth/tileHeight 需要显式提供，否则会触发类型校验错误
       tileWidth: width,
       tileHeight: height
     });
 
-    singleTileLayer = viewer.imageryLayers.addImageryProvider(provider);
-    singleTileLayer.alpha = alpha;
+    const layer = viewer.imageryLayers.addImageryProvider(provider);
+    layer.alpha = alpha;
+    viewer.imageryLayers.raiseToTop(layer);
+
+    return { layer, rectangle, blobUrl };
+  }
+
+  /**
+   * 按顺序叠加多幅带世界文件的专题栅格（数组前者在下、后者在上）。
+   *
+   * @param {object[]} tileSpecs 每项字段同 {@link buildAndAddSingleTile}
+   * @returns {Promise<Cesium.ImageryLayer[]>}
+   */
+  async function loadSingleTileStack(tileSpecs) {
+    if (!Array.isArray(tileSpecs) || tileSpecs.length === 0) {
+      throw new Error("[Thematic] loadSingleTileStack 需要非空数组");
+    }
+
+    clearSingleTileImagery();
+    hideLegend();
+
+    const rectangles = [];
+    /** @type {Cesium.Rectangle | null} */
+    let previousRectangle = null;
+    try {
+      for (const spec of tileSpecs) {
+        const { layer, rectangle, blobUrl } = await buildAndAddSingleTile(spec, {
+          previousRectangle
+        });
+        previousRectangle = rectangle;
+        singleTileLayers.push(layer);
+        if (blobUrl) singleTileBlobUrls.push(blobUrl);
+        rectangles.push(rectangle);
+      }
+    } catch (err) {
+      clearSingleTileImagery();
+      throw err;
+    }
+
+    for (const layer of singleTileLayers) {
+      viewer.imageryLayers.raiseToTop(layer);
+    }
+
     showLegend();
 
-    // 视角飞到该图片范围附近，便于确认加载成功
+    const dest = unionRectangles(rectangles);
     viewer.camera.flyTo({
-      destination: rectangle,
+      destination: dest,
       duration: 1.2
     });
 
-    return singleTileLayer;
+    return singleTileLayers.slice();
+  }
+
+  /**
+   * 加载单幅专题栅格（等价于 loadSingleTileStack([options])）。
+   *
+   * @param {object} options 字段同 {@link buildAndAddSingleTile}（单幅时不可使用 sameExtentAsPrevious）
+   */
+  async function loadSingleTile(options) {
+    return loadSingleTileStack([options]);
   }
 
   function loadImageSize(url) {
+    return loadImageElement(url).then((img) => ({
+      width: img.naturalWidth,
+      height: img.naturalHeight
+    }));
+  }
+
+  /**
+   * @param {string} url
+   * @returns {Promise<HTMLImageElement>}
+   */
+  function loadImageElement(url) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.decoding = "async";
+      img.onload = () => resolve(img);
       img.onerror = () => reject(new Error(`[Thematic] 无法加载图片：${url}`));
       img.src = url;
     });
+  }
+
+  /**
+   * 将近黑 / 近白像素改为透明后导出为 PNG Blob URL（一次 Canvas 处理可同时开两种抠图）。
+   *
+   * @param {string} imageUrl
+   * @param {object} opts
+   * @param {boolean} [opts.transparentBlack=false]
+   * @param {number} [opts.blackThreshold=24] RGB 均 ≤ 该值 → 透明
+   * @param {boolean} [opts.transparentWhite=false]
+   * @param {number} [opts.whiteThreshold=12] RGB 均 ≥ (255 - whiteThreshold) → 透明（白底图）
+   * @returns {Promise<string>}
+   */
+  async function rasterizeMattingPngBlobUrl(imageUrl, opts) {
+    const {
+      transparentBlack = false,
+      blackThreshold = 24,
+      transparentWhite = false,
+      whiteThreshold = 12
+    } = opts;
+
+    const img = await loadImageElement(imageUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error("[Thematic] 无法创建 Canvas 2D 上下文");
+    }
+    ctx.drawImage(img, 0, 0);
+    const { width, height } = canvas;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const bt = blackThreshold;
+    const whiteFloor = 255 - whiteThreshold;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (transparentBlack && r <= bt && g <= bt && b <= bt) {
+        data[i + 3] = 0;
+        continue;
+      }
+      if (transparentWhite && r >= whiteFloor && g >= whiteFloor && b >= whiteFloor) {
+        data[i + 3] = 0;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) reject(new Error("[Thematic] 无法导出透明 PNG（toBlob 返回空）"));
+          else resolve(blob);
+        },
+        "image/png"
+      );
+    });
+    return URL.createObjectURL(blob);
   }
 
   async function loadWorldFile(url) {
@@ -262,15 +453,13 @@ export function createThematicLayer(viewer, { tooltipEl, legendEl }) {
       viewer.dataSources.remove(dataSource, true);
       dataSource = null;
     }
-    if (singleTileLayer) {
-      viewer.imageryLayers.remove(singleTileLayer, true);
-      singleTileLayer = null;
-    }
+    clearSingleTileImagery();
   }
 
   return {
     load,
     loadSingleTile,
+    loadSingleTileStack,
     clear
   };
 }

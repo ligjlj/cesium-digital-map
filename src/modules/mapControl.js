@@ -16,7 +16,9 @@ export function createBaseMapManager(viewer) {
       currentLayer = null;
     }
     if (provider) {
-      currentLayer = viewer.imageryLayers.addImageryProvider(provider);
+      // 必须插在索引 0（最底层）。否则切换底图时新图层会默认加在最上面，
+      // 盖住已加载的专题影像（SingleTile 等叠加层会“像消失了一样”）。
+      currentLayer = viewer.imageryLayers.addImageryProvider(provider, 0);
     }
   }
 
@@ -32,6 +34,13 @@ export function createBaseMapManager(viewer) {
 
     // 天地图 WMTS（WGS84 坐标系）
     // 注意：天地图有多套矩阵集（w/c），这里用 w（经纬度/WGS84）更易与 Cesium 配合。
+    // 控制台若大量 429：属天地图对 tk 的限流/配额，非本项目 Node 后台；可换 key、Nginx 缓存瓦片、或切「高德/离线」底图。
+    const maxLevelRaw = import.meta.env.VITE_TIANDITU_MAX_LEVEL;
+    const maximumLevel =
+      maxLevelRaw !== undefined && maxLevelRaw !== "" && Number.isFinite(Number(maxLevelRaw))
+        ? Math.min(18, Math.max(0, Math.floor(Number(maxLevelRaw))))
+        : 18;
+
     return new Cesium.WebMapTileServiceImageryProvider({
       url:
         "https://t{s}.tianditu.gov.cn/img_w/wmts?tk=" +
@@ -40,7 +49,9 @@ export function createBaseMapManager(viewer) {
       style: "default",
       format: "tiles",
       tileMatrixSetID: "w",
-      maximumLevel: 18,
+      maximumLevel,
+      // 关闭 WMTS GetFeatureInfo，减少无谓请求（对 429 帮助有限，但无业务需求时建议关）
+      enablePickFeatures: false,
       subdomains: ["0", "1", "2", "3", "4", "5", "6", "7"]
     });
   }

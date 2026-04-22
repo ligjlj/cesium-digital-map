@@ -7,52 +7,115 @@
   </head>
   <body>
     <div id="app">
-      <div class="topbar">
-        <div class="group">
-          <span class="label">底图</span>
-          <select id="selectBaseMap" class="select" title="底图切换">
-            <option value="tianditu">天地图</option>
-            <option value="gaode">高德</option>
-            <option value="offline">离线瓦片</option>
-          </select>
-        </div>
-        <div class="group">
-          <span class="label">漫游</span>
-          <select id="selectFlyPreset" class="select" title="漫游预设点">
-            <option value="gugong">故宫</option>
-            <option value="changcheng">长城</option>
-            <option value="shanghai">上海</option>
-          </select>
-          <button id="btnFlyGo" class="btn">漫游</button>
-          <button id="btnFlyCancel" class="btn btn-danger">取消</button>
-        </div>
-        <div class="group">
-          <span class="label">专题图</span>
-          <button id="btnLoadThematic" class="btn">加载/刷新</button>
-          <button id="btnClearThematic" class="btn">清空</button>
-        </div>
+      <!-- Cesium Credits 挂载到隐藏节点，避免默认叠在画布上 -->
+      <div id="credit-sink" class="credit-sink" aria-hidden="true"></div>
+
+      <div
+        id="control-panel"
+        class="control-panel"
+        role="region"
+        aria-label="地图控制面板"
+      >
+        <header class="control-panel__header">
+          <div class="control-panel__brand">
+            <span class="control-panel__title">数字地球</span>
+            <span class="control-panel__tag">LOCAL</span>
+          </div>
+          <p class="control-panel__desc">纯本地化 · 专题栅格</p>
+        </header>
+
+        <section class="control-section" aria-labelledby="section-basemap">
+          <h2 id="section-basemap" class="control-section__title">底图控制</h2>
+          <div class="control-row">
+            <label class="field">
+              <span class="field__label">底图源</span>
+              <select id="selectBaseMap" class="select" title="底图切换">
+                <option value="tianditu">天地图</option>
+                <option value="gaode">高德</option>
+                <option value="offline">离线瓦片</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="control-section" aria-labelledby="section-thematic">
+          <h2 id="section-thematic" class="control-section__title">专题图控制</h2>
+          <div class="control-row control-row--split">
+            <button id="btnLoadThematic" type="button" class="btn btn-accent">加载 / 刷新</button>
+            <button id="btnClearThematic" type="button" class="btn btn-muted">清空</button>
+          </div>
+        </section>
+
+        <section
+          class="control-section"
+          id="groupFlyRoam"
+          aria-labelledby="section-roam"
+          aria-label="视角漫游"
+        >
+          <h2 id="section-roam" class="control-section__title">视角漫游</h2>
+          <div class="control-row">
+            <label class="field">
+              <span class="field__label">预设点位</span>
+              <select id="selectFlyPreset" class="select" title="漫游预设点">
+                <option value="gugong">故宫</option>
+                <option value="changcheng">长城</option>
+                <option value="shanghai">上海</option>
+              </select>
+            </label>
+          </div>
+          <div class="control-row control-row--split">
+            <button id="btnFlyGo" type="button" class="btn btn-accent">开始漫游</button>
+            <button id="btnFlyCancel" type="button" class="btn btn-danger">取消</button>
+          </div>
+        </section>
       </div>
 
       <div id="cesiumContainer" class="viewer"></div>
       <div id="tooltip" class="tooltip hidden"></div>
-      <div id="scaleBar" class="scale-bar" aria-label="比例尺">
-        <div id="scaleBarLabel" class="scale-bar-label">--</div>
-        <div class="scale-bar-track" aria-hidden="true">
-          <div class="scale-bar-tick scale-bar-tick-left"></div>
-          <div class="scale-bar-tick scale-bar-tick-mid"></div>
-          <div class="scale-bar-tick scale-bar-tick-right"></div>
-          <div id="scaleBarFill" class="scale-bar-fill">
-            <div class="scale-bar-segments" aria-hidden="true"></div>
+
+      <div class="readouts-anchor">
+        <div id="scaleBar" class="scale-bar" aria-label="比例尺">
+          <div id="scaleBarLabel" class="scale-bar-label">--</div>
+          <div class="scale-bar-track-wrap">
+            <div id="scaleBarTrack" class="scale-bar-track" aria-hidden="true">
+              <div id="scaleBarBar" class="scale-bar-bar">
+                <span class="scale-bar-seg"></span>
+                <span class="scale-bar-seg"></span>
+                <span class="scale-bar-seg"></span>
+                <span class="scale-bar-seg"></span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div id="legend" class="legend hidden" aria-label="专题图图例">
-        <div class="legend-label legend-label-high">High</div>
-        <div class="legend-ramp" role="img" aria-label="色带：Low 到 High"></div>
-        <div class="legend-label legend-label-low">Low</div>
+
+        <div id="legend" class="legend legend--gis hidden" aria-label="专题图图例">
+          <span class="legend-crop legend-crop--tl" aria-hidden="true"></span>
+          <span class="legend-crop legend-crop--tr" aria-hidden="true"></span>
+          <span class="legend-crop legend-crop--bl" aria-hidden="true"></span>
+          <span class="legend-crop legend-crop--br" aria-hidden="true"></span>
+          <div class="legend-header">Stretch</div>
+          <div class="legend-body">
+            <div class="legend-ramp" role="img" aria-label="连续色带：低值至高位"></div>
+            <div class="legend-tick-column" aria-hidden="true">
+              <div class="legend-tick-row legend-tick-row--top">
+                <span class="legend-tick-value">63133.7</span>
+                <span class="legend-tick-note">High</span>
+              </div>
+              <div class="legend-tick-row">
+                <span class="legend-tick-value">16854.7</span>
+              </div>
+              <div class="legend-tick-row">
+                <span class="legend-tick-value">8797.3</span>
+              </div>
+              <div class="legend-tick-row legend-tick-row--bottom">
+                <span class="legend-tick-value">739.8</span>
+                <span class="legend-tick-note">Low</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
-

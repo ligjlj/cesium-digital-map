@@ -12,27 +12,26 @@ import { createScaleBar } from "./modules/scaleBar.js";
 // 去云化关键配置：彻底禁用 Cesium Ion（避免任何外部云服务依赖）
 Cesium.Ion.defaultAccessToken = null;
 
-// Viewer 初始化（隐藏默认 UI 控件，减少 Cesium 默认联网行为）
+// Viewer 初始化：关闭 Cesium 原生 UI，仅保留画布与场景（底图由自建面板控制）
 const viewer = new Cesium.Viewer("cesiumContainer", {
-  // 禁用默认底图：由我们自己管理多源底图
   imageryProvider: false,
   baseLayerPicker: false,
   geocoder: false,
   homeButton: false,
   sceneModePicker: false,
   navigationHelpButton: false,
+  navigationInstructionsInitiallyVisible: false,
   animation: false,
   timeline: false,
   fullscreenButton: false,
   selectionIndicator: false,
   infoBox: false,
   vrButton: false,
-  shouldAnimate: true
+  projectionPicker: false,
+  shouldAnimate: true,
+  // Credits 挂到隐藏节点，避免默认叠在画布角落（合规场景可改为可见容器）
+  creditContainer: document.getElementById("credit-sink")
 });
-
-// 隐藏 Cesium 默认 credits（水印/署名区域）
-// 注意：如果你需要合规展示 Cesium/数据源署名，请删除这段。
-viewer.cesiumWidget.creditContainer.style.display = "none";
 
 // 进一步清理默认图层（不同版本 Cesium 在 imageryProvider:false 时行为略有差异）
 viewer.imageryLayers.removeAll();
@@ -69,7 +68,7 @@ const thematicLayer = createThematicLayer(viewer, {
 // 常态比例尺（随地图缩放实时更新）
 createScaleBar(viewer, {
   labelEl: document.getElementById("scaleBarLabel"),
-  fillEl: document.getElementById("scaleBarFill"),
+  barEl: document.getElementById("scaleBarBar"),
   maxWidthPx: 140
 });
 
@@ -83,29 +82,49 @@ selectBaseMap?.addEventListener("change", (e) => {
 });
 
 const selectFlyPreset = document.getElementById("selectFlyPreset");
-document.getElementById("btnFlyGo")?.addEventListener("click", () => {
+const btnFlyGo = document.getElementById("btnFlyGo");
+const btnFlyCancel = document.getElementById("btnFlyCancel");
+const groupFlyRoam = document.getElementById("groupFlyRoam");
+
+/** 专题图加载后禁用漫游，避免与专题视角冲突；清空后恢复。 */
+function setFlyRoamUiEnabled(enabled) {
+  const on = Boolean(enabled);
+  if (selectFlyPreset) selectFlyPreset.disabled = !on;
+  if (btnFlyGo) btnFlyGo.disabled = !on;
+  if (btnFlyCancel) btnFlyCancel.disabled = !on;
+  groupFlyRoam?.classList.toggle("is-disabled", !on);
+}
+
+btnFlyGo?.addEventListener("click", () => {
   const v = selectFlyPreset?.value;
   if (v) cameraController.patrolAbovePreset(v);
 });
-document.getElementById("btnFlyCancel")?.addEventListener("click", () => {
+btnFlyCancel?.addEventListener("click", () => {
   cameraController.cancelPatrol();
 });
 
 document.getElementById("btnLoadThematic")?.addEventListener("click", async () => {
   // 专题图影像（SingleTileImageryProvider）
   // 注意：tif2.png 必须放在 public/map/中国_省/ 下，才能通过 /map/... 访问
-  await thematicLayer.loadSingleTile({
-    // 你当前的文件结构：
-    // - public/map/tif2.png
-    // - public/map/中国_省/tif2.pgw
-    imageUrl: "/map/tif2.png",
-    worldFileUrl: "/map/中国_省/tif2.pgw",
-    alpha: 0.85
-  });
+  try {
+    await thematicLayer.loadSingleTile({
+      imageUrl: "/map/tif2.png",
+      worldFileUrl: "/map/中国_省/tif2.pgw",
+      alpha: 0.92,
+      transparentBlack: true,
+      blackThreshold: 24,
+      transparentWhite: false
+    });
+    cameraController.cancelPatrol();
+    setFlyRoamUiEnabled(false);
+  } catch (err) {
+    console.error("[Thematic] 加载失败：", err);
+  }
 });
 document.getElementById("btnClearThematic")?.addEventListener("click", () => {
   thematicLayer.clear();
   cameraController.returnToInitial();
+  setFlyRoamUiEnabled(true);
 });
 
 // 默认底图：天地图（如果 token 未配置，会在控制台给出提示）
