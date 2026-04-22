@@ -110,10 +110,10 @@ export function createCameraController(viewer) {
 
     // 约束：20km “上方”可理解为相机到目标点的距离/半径约 20km
     // 这里把环绕半径与飞行高度解耦，便于后续按业务调整。
-    const patrolHeightMeters = options.patrolHeightMeters ?? 22_000; // 先飞到稍高位置，避免贴地遮挡
+    const patrolHeightMeters = options.patrolHeightMeters ?? 16_000; // 默认稍低一些，减少瓦片层级频繁切换
     const seconds = options.seconds ?? 18; // 一圈时间
     const pitchDeg = options.pitchDeg ?? -35;
-    const rangeMeters = options.rangeMeters ?? 20_000;
+    const rangeMeters = options.rangeMeters ?? 14_000;
 
     const target = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0);
 
