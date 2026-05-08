@@ -36,12 +36,19 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
 // 进一步清理默认图层（不同版本 Cesium 在 imageryProvider:false 时行为略有差异）
 viewer.imageryLayers.removeAll();
 
-// 初始相机锁定北京正上空，高度约 2000km（2,000,000m）
+// 初始相机：北京区域正俯视（高度约 520km，便于与专题图尺度一致）
+const BEIJING_THEMATIC_EXTENT = {
+  west: 115.5,
+  south: 39.4,
+  east: 117.5,
+  north: 41.0
+};
+const beijingCenterLon = (BEIJING_THEMATIC_EXTENT.west + BEIJING_THEMATIC_EXTENT.east) / 2;
+const beijingCenterLat = (BEIJING_THEMATIC_EXTENT.south + BEIJING_THEMATIC_EXTENT.north) / 2;
 viewer.camera.setView({
-  destination: Cesium.Cartesian3.fromDegrees(116.3913, 39.9075, 2_000_000.0),
+  destination: Cesium.Cartesian3.fromDegrees(beijingCenterLon, beijingCenterLat, 520_000.0),
   orientation: {
     heading: Cesium.Math.toRadians(0),
-    // -90 表示正俯视（在目标点上空向下看）
     pitch: Cesium.Math.toRadians(-90),
     roll: 0
   }
@@ -105,26 +112,27 @@ btnFlyCancel?.addEventListener("click", () => {
 });
 
 document.getElementById("btnLoadThematic")?.addEventListener("click", async () => {
-  // 专题图影像（SingleTileImageryProvider）
-  // 注意：tif2.png 必须放在 public/map/中国_省/ 下，才能通过 /map/... 访问
   try {
-    // 任何时刻加载专题图：立刻中断现有相机操作（不回正）
     cameraController.interrupt?.();
 
-    const { rectangle } = await thematicLayer.loadSingleTile({
-      imageUrl: "/map/tif2.png",
-      worldFileUrl: "/map/中国_省/tif2.pgw",
+    await thematicLayer.loadSingleTile({
+      imageUrl: "/map/beijing-pm25-population-2016-mapframe.png",
+      rectangleDegrees: BEIJING_THEMATIC_EXTENT,
       alpha: 0.92,
-      transparentBlack: true,
-      blackThreshold: 24,
+      transparentBlack: false,
       transparentWhite: false
     });
     setFlyRoamUiEnabled(false);
 
-    // 再次确保不受任何残留飞行/漫游影响，然后 zoom 到专题范围
     cameraController.interrupt?.();
+    // 专题范围较小：正俯视 + 固定高度，比默认 fit-rectangle 更近、层次更清楚
     viewer.camera.flyTo({
-      destination: rectangle,
+      destination: Cesium.Cartesian3.fromDegrees(beijingCenterLon, beijingCenterLat, 185_000.0),
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-90),
+        roll: 0
+      },
       duration: 1.35
     });
   } catch (err) {
