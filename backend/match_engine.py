@@ -1,21 +1,19 @@
 """
 gotrackit 路网匹配引擎封装
-Phase 1: FastAPI 基础设施 + 核心封装
-
-路网来源: gotrackit 内置 Net 类
-首次使用时将路网 GeoJSON (link + node) 放入 backend/data/ 目录
+Phase 2: 完整 GeoJSON 输出 — 匹配路段 + 轨迹 + 路网
 """
 
 import logging
 import random
 import math
+import json
 from pathlib import Path
-from typing import Optional
-from dataclasses import dataclass
+from typing import Optional, List
+from dataclasses import dataclass, field
 
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString, mapping
 
 from gotrackit.map.Net import Net
 from gotrackit.MapMatch import MapMatch
@@ -32,6 +30,27 @@ SAMPLE_TRIPS_FILE = DATA_DIR / "sample_trips.geojson"
 
 net_field = NetField()
 gps_field = GpsField()
+
+# ── 匹配输出文件命名 ─────────────────────────────────
+MATCH_FLAG = "beijing_match"
+
+
+def _match_link_file(agent_id: str) -> Path:
+    return DATA_DIR / f"{MATCH_FLAG}-{agent_id}-match_link.geojson"
+
+
+def _match_gps_file(agent_id: str) -> Path:
+    return DATA_DIR / f"{MATCH_FLAG}-{agent_id}-gps.geojson"
+
+
+def _match_prj_file(agent_id: str) -> Path:
+    return DATA_DIR / f"{MATCH_FLAG}-{agent_id}-prj_p.geojson"
+
+
+def _clean_match_outputs():
+    """清理旧的匹配输出文件"""
+    for f in DATA_DIR.glob(f"{MATCH_FLAG}-*"):
+        f.unlink(missing_ok=True)
 
 
 # ════════════════════════════════════════════
@@ -83,7 +102,6 @@ def generate_synthetic_gps(
             step = random.uniform(0.0003, 0.0015)
             lon += step * math.cos(heading)
             lat += step * math.sin(heading)
-
             noise_lon = random.gauss(0, 0.00015)
             noise_lat = random.gauss(0, 0.00015)
             t = base_time + pd.Timedelta(seconds=i * interval_s + trip_id * 3600)
@@ -106,24 +124,67 @@ def generate_synthetic_gps(
 
 
 # ════════════════════════════════════════════
-# 路网匹配
+# 路网匹配 (Phase 2: 完整 GeoJSON 输出)
 # ════════════════════════════════════════════
 
 @dataclass
 class MatchResult:
-    matched_links: gpd.GeoDataFrame
-    corrected_traj: gpd.GeoDataFrame
-    raw_traj: gpd.GeoDataFrame
+    """单条轨迹匹配结果"""
+    agent_id: str
+    point_count: int
+    match_link_count: int
+    # GeoJSON FeatureCollection
+    matched_links_geojson: dict
+    corrected_traj_geojson: dict
+    prj_points_geojson: dict
+    # 统计
     match_rate: float
     total_length_km: float
 
 
-def run_map_match(net: Net, trips_gdf: gpd.GeoDataFrame) -> MatchResult:
-    logger.info("HMM 匹配: %d 点", len(trips_gdf))
+@dataclass
+class BatchMatchResult:
+    """批量匹配结果"""
+    trips: List[MatchResult] = field(default_factory=list)
+    network_geojson: dict = field(default_factory=dict)
+    raw_trips_geojson: dict = field(default_factory=dict)
+
+    @property
+    def summary(self) -> dict:
+        return {
+            "trip_count": len(self.trips),
+            "total_points": sum(t.point_count for t in self.trips),
+            "total_match_links": sum(t.match_link_count for t in self.trips),
+            "overall_match_rate": (
+                sum(t.match_rate for t in self.trips) / len(self.trips)
+                if self.trips else 0
+            ),
+            "agent_ids": [t.agent_id for t in self.trips],
+        }
+
+
+def _geojson_from_file(filepath: Path) -> dict:
+    """从文件加载 GeoJSON dict"""
+    if not filepath.exists():
+        return {"type": "FeatureCollection", "features": []}
+    gdf = gpd.read_file(str(filepath))
+    # 将 datetime 列转为字符串，避免 JSON 序列化错误
+    for col in gdf.columns:
+        if gdf[col].dtype == "datetime64[ms]" or gdf[col].dtype == "datetime64[ns]":
+            gdf[col] = gdf[col].astype(str)
+    return json.loads(gdf.to_json())
+
+
+def run_map_match(net: Net, trips_gdf: gpd.GeoDataFrame) -> BatchMatchResult:
+    """执行 HMM 路网匹配，返回完整 GeoJSON 结果"""
+    logger.info("HMM 匹配: %d 点, %d agents", len(trips_gdf), trips_gdf["agent_id"].nunique())
+
+    # 清理旧输出
+    _clean_match_outputs()
 
     mpm = MapMatch(
         net=net,
-        flag_name="beijing_match",
+        flag_name=MATCH_FLAG,
         gps_buffer=200.0,
         top_k=20,
         beta=6.0,
@@ -133,25 +194,61 @@ def run_map_match(net: Net, trips_gdf: gpd.GeoDataFrame) -> MatchResult:
         out_fldr=str(DATA_DIR),
     )
 
-    match_res_df, may_error_list, error_list = mpm.execute(gps_df=trips_gdf)
+    mpm.execute(gps_df=trips_gdf)
 
-    # match_res_df is a DataFrame, not a dict
-    matched_links = gpd.GeoDataFrame()
-    corrected_traj = trips_gdf
-    if match_res_df is not None and len(match_res_df) > 0:
-        corrected_traj = match_res_df
-    logger.info("匹配结果: %d rows", len(match_res_df) if match_res_df is not None else 0)
+    # 收集每个 agent 的匹配结果
+    agent_ids = sorted(trips_gdf["agent_id"].unique())
+    trip_results = []
 
-    total = len(trips_gdf)
-    matched = len(corrected_traj) if corrected_traj is not None else 0
-    rate = matched / total if total > 0 else 0.0
+    for aid in agent_ids:
+        link_file = _match_link_file(aid)
+        gps_file = _match_gps_file(aid)
+        prj_file = _match_prj_file(aid)
 
-    length_km = 0.0
-    if matched_links is not None and len(matched_links) > 0 and "length" in matched_links.columns:
-        length_km = matched_links["length"].sum() / 1000.0
+        matched_links = _geojson_from_file(link_file)
+        corrected_gps = _geojson_from_file(gps_file)
+        prj_points = _geojson_from_file(prj_file)
 
-    logger.info("匹配完成: rate=%.1f%%, path=%.2f km", rate * 100, length_km)
-    return MatchResult(matched_links, corrected_traj, trips_gdf, rate, length_km)
+        # 统计
+        ml_count = len(matched_links.get("features", []))
+        gps_count = len(corrected_gps.get("features", []))
+        raw_count = len(trips_gdf[trips_gdf["agent_id"] == aid])
+        rate = gps_count / raw_count if raw_count > 0 else 0
+
+        # 计算匹配路径长度
+        length_km = 0.0
+        for feat in matched_links.get("features", []):
+            geom = feat.get("geometry", {})
+            if geom.get("type") == "LineString":
+                coords = geom.get("coordinates", [])
+                line = LineString(coords)
+                length_km += line.length * 111000 / 1000  # 粗略度→km
+
+        trip_results.append(MatchResult(
+            agent_id=aid,
+            point_count=gps_count,
+            match_link_count=ml_count,
+            matched_links_geojson=matched_links,
+            corrected_traj_geojson=corrected_gps,
+            prj_points_geojson=prj_points,
+            match_rate=round(rate, 4),
+            total_length_km=round(length_km, 3),
+        ))
+
+    # 加载路网 GeoJSON
+    network_geojson = _geojson_from_file(NETWORK_FILE)
+
+    # 加载原始轨迹 GeoJSON
+    raw_geojson = {"type": "FeatureCollection", "features": []}
+    if SAMPLE_TRIPS_FILE.exists():
+        raw_geojson = _geojson_from_file(SAMPLE_TRIPS_FILE)
+
+    logger.info("匹配完成: %d agents", len(trip_results))
+    return BatchMatchResult(
+        trips=trip_results,
+        network_geojson=network_geojson,
+        raw_trips_geojson=raw_geojson,
+    )
 
 
 # ════════════════════════════════════════════
