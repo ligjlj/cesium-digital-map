@@ -1,17 +1,24 @@
-# Cesium 纯本地化数字地球与专题图
+# Cesium 纯本地化数字地球 · 路网匹配与路径规划
 
-本项目严格按 `cursor.md` 的流程规范，从零构建一个 **完全去云化** 的 Cesium 数字地球底座，支持：
+基于 **Vite + Cesium.js** 的前端数字地球，集成 **FastAPI + gotrackit** 后端，实现：
 
-- 多源底图切换：天地图 WMTS / 高德（GCJ-02→WGS84 纠偏）/ 本地离线瓦片
-- 相机漫游：`flyToDestination` + 预设视角按钮
-- 电子专题图：由 **TIF 等成果导出为带地理坐标的栅格图**（如 PNG）+ **世界文件**（如 `.pgw`），通过 `SingleTileImageryProvider` 在球面叠加；界面提供加载/清空与图例说明
+- 多源底图：天地图 WMTS / 高德 / 本地离线瓦片
+- 相机漫游：`flyTo` + 预设环绕视角
+- 电子专题图：PNG + 世界文件（`.pgw`）栅格叠加
+- **路网匹配（HMM）**：合成 GPS → gotrackit MapMatch → Cesium 多图层可视化
+- **最短路径规划**：地图选点 → Dijkstra → 路径渲染
 
 ## 1. 环境准备
 
-- Node.js 18+（推荐 20+）
-- npm 9+
+| 组件 | 要求 |
+|------|------|
+| Node.js | 18+（推荐 20+） |
+| npm | 9+ |
+| Python | 3.10+（推荐 3.12+，已验证 gotrackit 0.3.x） |
 
 ## 2. 安装与运行
+
+### 2.1 前端
 
 ```bash
 npm install
@@ -20,145 +27,140 @@ npm run dev
 
 浏览器打开 `http://localhost:5173/`。
 
+### 2.2 后端（路网匹配 / 路径规划）
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8765 --reload
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8765/api/health
+```
+
+### 2.3 典型操作流程
+
+1. 启动后端与前端；
+2. 左侧面板选择底图（天地图 / 高德）；
+3. **路网匹配**：点击「加载路网」→ 设置轨迹数/点数 →「执行匹配」；
+4. **路径规划**：点击「地图选点」依次选起终点 →「规划路径」。
+
+匹配结果图层说明：
+
+| 图层 | 颜色 | 含义 |
+|------|------|------|
+| 原始 GPS | 白色点 | 带噪声的合成轨迹 |
+| 纠偏轨迹 | 青色线 | HMM 匹配后路径 |
+| 匹配路段 | 橙色粗线 | 匹配到的 link |
+| 投影点 | 绿色点 | GPS 在 link 上的投影 |
+| 路网 | 蓝色半透明 | 底图路网 |
+| 规划路径 | 紫色线 | Dijkstra 最短路 |
+
 ## 3. 天地图 token（可选）
 
-天地图 WMTS 通常需要 token。你可以用 Vite 环境变量配置：
-
-- 新建 `.env.local`，写入：
+新建 `.env.local`（已在 `.gitignore`）：
 
 ```bash
 VITE_TIANDITU_TOKEN=你的token
 ```
 
-不配置 token 也能运行项目，但“天地图”底图可能无法访问，可切换到“离线瓦片”或“高德”。
+未配置 token 时可切换到「高德」或「离线瓦片」底图。
 
-## 4. 专题栅格图（TIF 导出 + 世界文件）
+## 4. 后端 API
 
-将专题图导出为图片（如 `public/map/tif2.png`），并准备与之配套的六行世界文件（如 `public/map/中国_省/tif2.pgw`）。应用内通过 `SingleTileImageryProvider` 读取图片尺寸与世界文件计算四至范围并贴图；具体路径需与 `src/main.js` 中 `loadSingleTile` 的配置一致。
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/health` | GET | 健康检查 |
+| `/api/network` | GET | 路网 GeoJSON（1467 links） |
+| `/api/match` | POST | HMM 路网匹配，返回完整 GeoJSON |
+| `/api/route` | POST | 最短路径规划（起终点经纬度） |
+| `/api/generate` | POST | 生成合成 GPS 轨迹 |
 
-## 5. 离线瓦片目录
+`POST /api/match` 请求示例：
 
-将离线瓦片按以下结构放入 `public/tiles/`：
+```json
+{ "num_trips": 3, "points_per_trip": 80 }
+```
+
+`POST /api/route` 请求示例：
+
+```json
+{
+  "origin": { "lng": 116.25, "lat": 39.90 },
+  "destination": { "lng": 116.28, "lat": 39.92 }
+}
+```
+
+坐标系：路网与 API 业务数据为 **GCJ-02**；前端按底图类型自动转换（天地图 WGS84 / 高德 GCJ-02）。
+
+## 5. 项目结构
+
+```
+cesium-digital-map/
+├── backend/
+│   ├── main.py              # FastAPI 入口
+│   ├── match_engine.py      # gotrackit HMM 匹配
+│   ├── route_engine.py      # Dijkstra 最短路径
+│   ├── requirements.txt
+│   └── data/
+│       ├── beijing_network.geojson   # 1467 条路段
+│       └── beijing_nodes.geojson     # 1341 个节点
+├── src/
+│   ├── main.js
+│   └── modules/
+│       ├── mapControl.js       # 底图切换
+│       ├── roadNetLayer.js     # 路网渲染
+│       ├── trajectoryLayer.js  # 匹配结果渲染
+│       ├── routeLayer.js       # 路径规划渲染
+│       └── routePickMode.js    # 地图选点
+├── index.html
+├── package.json
+└── vite.config.js
+```
+
+## 6. 路网数据
+
+- 北京区域真实路网（高德 API 逆向生成），覆盖约 116.21°–116.31°E、39.86°–39.95°N；
+- 合成 GPS 沿路网拓扑游走并叠加高斯噪声，用于演示 HMM 匹配；
+- 匹配临时输出（`backend/data/beijing_match-*`）与 `sample_trips.geojson` 已在 `.gitignore` 中忽略。
+
+## 7. 专题栅格图
+
+将专题图导出为 PNG + 世界文件（如 `public/map/beijing-pm25-population-2016-mapframe.png`），通过 `SingleTileImageryProvider` 叠加。路径需与 `src/main.js` 中配置一致。
+
+## 8. 离线瓦片
 
 ```
 public/tiles/{z}/{x}/{y}.png
 ```
 
-## 6. 打包与局域网部署
+## 9. 打包与局域网部署
 
 ```bash
 npm run build
 ```
 
-要求：`dist/` 内包含 Cesium 的 `Assets/Workers/Widgets` 等资源（由 `vite-plugin-cesium` 处理）。
+`dist/` 由 `vite-plugin-cesium` 打包 Cesium 资源，可交给 Nginx 托管。后端需单独部署并保证前端可访问 `http://<host>:8765`（或修改 `src/modules/trajectoryLayer.js` / `routeLayer.js` 中的 `API_BASE`）。
 
-将 `dist/` 交给 Nginx 托管即可在 **无外网** 局域网环境运行（前提是你使用的底图资源本身可在局域网访问或为离线瓦片）。
+## 10. 大体积 GeoTIFF 离线切片
 
-## 7. 更新记录
+根目录 `map/` 及 `*.tif` 已在 `.gitignore` 中忽略。大体积 GeoTIFF 建议用 GDAL / QGIS 切成 XYZ 瓦片后放到 `public/tiles-pop/`，前端用 `UrlTemplateImageryProvider` 按需加载。
+
+```bash
+gdal2tiles.py -z 0-8 -w none -r bilinear -p mercator input.tif public/tiles-pop
+```
+
+## 11. 更新记录
+
+### 2026-06-06
+
+- **后端**：FastAPI + gotrackit 路网匹配（HMM）与 Dijkstra 最短路径规划；
+- **前端**：路网 / 轨迹 / 路径规划图层，地图交互选点，底图坐标系自适应；
+- **数据**：北京真实路网（1467 links），沿路网合成 GPS 演示匹配流程。
 
 ### 2026-04-22
 
-- **界面**：左上角毛玻璃控制面板（分区标题、底图 / 专题 / 漫游）；右下角 GIS 风格图例（Stretch 色带 + 刻度）与黑白分段比例尺读数。
-- **小改动**：专题图图例标题改为《2025中国人口分布图》；支持在右下角比例尺面板上左右拖动，实现低灵敏度的放大/缩小（通过平滑调整相机高度）。
-- **专题图视角**：加载专题栅格后自动飞行到专题范围，并增加适度边距（避免画面贴边，缩放到更合适大小）。
-- **修复**：加载专题图后不再被“取消漫游→回初始点”覆盖，专题图自动缩放生效。
-- **交互约束**：任意时刻点击「加载/刷新」专题图会立刻中断当前相机动作（含漫游），然后加载并自动缩放到专题范围（不再强制“回正”）。
-- **漫游优化**：下调环绕漫游默认相机高度/距离（默认高度约 16km / 半径约 14km），降低瓦片层级切换频率，减少底图瓦片重新加载的感知。
-- **Cesium Viewer**：Credits 挂到页面内隐藏节点 `#credit-sink`，避免默认叠在画布角标区域；关闭 `projectionPicker`、导航帮助初始展示等；移除通过脚本强行隐藏 credit 容器的做法。
-- **专题图**：`SingleTileImageryProvider` 加载支持透明黑（`transparentBlack` / `blackThreshold`）等参数；加载失败时控制台报错不中断；加载成功后取消进行中的漫游并禁用「视角漫游」分区，清空专题后恢复初始视角与漫游控件。
-- **底图 / 工程**：`mapControl`、比例尺模块与 `package-lock` 等随上述能力调整；`.env.example` 补充天地图可选最大级别说明（缓解 429）。
-- **规范文档**：`cursor.md` 与当前实现（专题栅格 + 世界文件、打包目录要求）对齐。
-- **资源**：增补 `行政区划图.png` 等地图相关素材（按仓库内 `public/map/` 与 `map/` 实际路径使用）。
-
-## 8. 方案 B：GeoTIFF 专题图离线切片（推荐）
-
-当专题图是大体积 GeoTIFF（例如 `public/map/global_pop_2025_CN_1km_R2025A_UA_v1.tif` 约 289MB）时，不建议浏览器端“直接加载 tif”。最佳实践是 **离线切成 XYZ 瓦片**，前端用 `UrlTemplateImageryProvider` 按需加载。
-
-### 8.1 离线切片（GDAL）
-
-准备：安装 GDAL（QGIS 自带 / OSGeo4W / conda 都可）。
-
-- **方式一：直接切 Web Mercator（常用）**
-
-```bash
-gdal2tiles.py -z 0-8 -w none -r bilinear -p mercator ^
-  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_CN_1km_R2025A_UA_v1.tif" ^
-  "d:\cursor_code\cesium-digital-map\public\tiles-pop"
-```
-
-- **方式二：先重投影到 EPSG:3857 再切（更稳，适合源数据坐标不确定时）**
-
-```bash
-gdalwarp -t_srs EPSG:3857 -r bilinear -of GTiff ^
-  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_CN_1km_R2025A_UA_v1.tif" ^
-  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_3857.tif"
-
-gdal2tiles.py -z 0-8 -w none -r bilinear -p mercator ^
-  "d:\cursor_code\cesium-digital-map\public\map\global_pop_2025_3857.tif" ^
-  "d:\cursor_code\cesium-digital-map\public\tiles-pop"
-```
-
-输出期望结构（XYZ）：
-
-```
-public/tiles-pop/{z}/{x}/{y}.png
-```
-
-提示：
-- `-z 0-8` 先小范围试跑，确认显示正常再提高级别；级别越高，瓦片数量增长越快。
-- 若切出来是 TMS（y 方向翻转）而不是 XYZ，需要在 Cesium 的 URL 模板里用 `{reverseY}`，或改切片工具输出为 XYZ。
-
-### 8.2 Cesium 端加载（按需请求瓦片）
-
-思路：把瓦片作为一个“专题影像层”叠加到 `viewer.imageryLayers`。
-
-URL 模板示例：
-- `"/tiles-pop/{z}/{x}/{y}.png"`（XYZ）
-- `"/tiles-pop/{z}/{x}/{reverseY}.png"`（TMS 反 y）
-
-后续落地时建议：
-- 点击「加载/刷新」时创建并添加该瓦片图层（可设置 `alpha`）
-- 点击「清空」时移除该瓦片图层
-- 加载后 `flyTo` 到瓦片覆盖范围（可用预设 `Cesium.Rectangle` 或从元数据中读取）
-
-### 8.3 QGIS 生成离线瓦片（XYZ/TMS）方案
-
-如果你更习惯 GUI 流程，可以用 QGIS（3.x）把 GeoTIFF 做成离线瓦片。总体原则仍然是：
-- **先做好渲染样式（颜色带/透明度）**，再导出瓦片；瓦片输出的是“渲染后的图片”，不是原始像元值。
-- 数字地球里通常用 **Web Mercator（EPSG:3857）** 的瓦片最通用。
-
-#### 方式 A：导出到文件夹（静态 `{z}/{x}/{y}.png`，最适合放到 `public/`）
-
-1. 在 QGIS 打开 `global_pop_2025_CN_1km_R2025A_UA_v1.tif`。
-2. 给栅格设置样式（例如单波段伪彩色、分级、透明背景等）。
-3. **重投影（推荐）**：右键图层 → 导出 → 另存为…  
-   - CRS 选 `EPSG:3857 - WGS 84 / Pseudo-Mercator`
-   - 输出得到一个 `*_3857.tif`（便于后续切片与对齐）
-4. 生成瓦片（不同版本 QGIS 菜单名称可能略有差异，常见入口）：
-   - 处理工具箱（Processing Toolbox）里搜索 **“XYZ tiles / 生成 XYZ 瓦片 / gdal2tiles”**  
-   - 设置：
-     - 输入栅格：`*_3857.tif`
-     - 输出目录：例如 `d:\cursor_code\cesium-digital-map\public\tiles-pop`
-     - 缩放级别：先用 `0-8`（确认 OK 再加）
-     - 格式：PNG（需要透明时）或 JPG（更小）
-     - 方案：优先 **XYZ**（若只能导出 TMS，则 Cesium 端用 `{reverseY}`）
-5. 产物检查：确认存在 `public/tiles-pop/0/0/0.png` 等文件。
-
-前端使用（XYZ）：
-- `"/tiles-pop/{z}/{x}/{y}.png"`
-
-若导出为 TMS（y 反向）：
-- `"/tiles-pop/{z}/{x}/{reverseY}.png"`
-
-#### 方式 B：导出 MBTiles（单文件，便于携带/发布，但需要服务或转换）
-
-1. 在 QGIS 按上述步骤完成样式与（推荐）重投影到 `EPSG:3857`。
-2. 导出瓦片到 **MBTiles**（Processing Toolbox 里搜索 “MBTiles / XYZ / gdal2tiles” 等相关工具）：
-   - 输出：例如 `d:\cursor_code\cesium-digital-map\public\tiles-pop.mbtiles`
-3. 使用方式二选一：
-   - 启一个本地瓦片服务把 MBTiles 对外提供为 `/{z}/{x}/{y}.png`（适合局域网部署）
-   - 或把 MBTiles **解包/转换**成目录瓦片，再按方式 A 放到 `public/tiles-pop/`
-
-提示：
-- 不要一开始就切太高层级（例如 0-14），瓦片数量会非常大；先 `0-8` 验证效果最重要。
-- 如果你后续希望在 Cesium 里做“自动 zoom 到瓦片范围”，建议在导出时记录范围（或用数据本身外接矩形），代码侧用 `Cesium.Rectangle` 来 flyTo。
+- 毛玻璃控制面板、GIS 图例与比例尺、专题栅格加载与视角漫游优化。
