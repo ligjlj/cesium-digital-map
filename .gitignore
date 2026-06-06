@@ -72,3 +72,19 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 Thumbs.db
+.vs/
+.hermes/
+
+# Internship / local artifacts
+*.docx
+internship-*.zip
+*压缩包*.zip
+
+# ------------------------------
+# Backend Python
+# ------------------------------
+__pycache__/
+*.pyc
+*.pyo
+backend/data/*match*
+backend/data/sample_trips.geojson

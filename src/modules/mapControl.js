@@ -56,9 +56,9 @@ export function createBaseMapManager(viewer) {
   }
 
   function createGaodeProvider() {
-    // 高德底图是 GCJ-02 坐标系，直接叠加到 WGS84 会有 ~300-500m 系统偏移。
-    // 这是所有 WGS84 查看器加载 GCJ-02 瓦片的正常行为，瓦片之间完美对齐。
-    // 需要精确叠加时请使用天地图（WGS84 原生）。
+    // 高德底图为 GCJ-02 瓦片；路网/匹配图层在 coordForBasemap 中按底图类型对齐。
+    // 天地图/离线瓦片为 WGS84，图层会自动做 GCJ-02→WGS84 纠偏。
+    // 高德瓦片之间完美对齐；与 WGS84 数据叠加时会有 ~300–500m 系统偏移，精确叠加请用天地图。
     return new Cesium.UrlTemplateImageryProvider({
       url: "/gaode/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}",
       maximumLevel: 19,

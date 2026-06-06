@@ -506,3 +506,110 @@ body,
 .scale-bar-seg:nth-child(even) {
   background: #f4f4f4;
 }
+
+/* ── 路网匹配状态 ── */
+.match-status {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 4px 8px;
+  border-radius: 6px;
+  min-height: 20px;
+  color: var(--muted);
+}
+.match-status--loading {
+  color: var(--accent);
+  animation: pulse 1s infinite;
+}
+.match-status--ok {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.1);
+}
+.match-status--error {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.route-pick-hint {
+  min-height: 0;
+  margin: 2px 0 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: transparent;
+}
+
+.route-pick-hint--active {
+  color: var(--accent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.btn-active {
+  border-color: rgba(56, 189, 248, 0.75);
+  background: rgba(56, 189, 248, 0.18);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+}
+
+.viewer.route-pick-active,
+#cesiumContainer.route-pick-active {
+  cursor: crosshair;
+}
+
+/* ── 内联数字输入 ── */
+.input-sm {
+  width: 50px;
+  padding: 2px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+}
+
+.input-md {
+  width: 72px;
+  padding: 2px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+}
+
+.field-row--wrap {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field__label--block {
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.field--inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field--inline .field__label {
+  white-space: nowrap;
+}
+
+.control-row--stack {
+  flex-direction: column;
+  gap: 6px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
