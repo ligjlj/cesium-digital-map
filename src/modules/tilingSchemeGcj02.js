@@ -23,26 +23,26 @@ export class Gcj02CorrectedWebMercatorTilingScheme extends Cesium.WebMercatorTil
   }
 
   /**
-   * 将瓦片的 WGS84 rectangle（Cesium 原始计算结果）视为 GCJ-02，
-   * 然后把四角点从 GCJ-02 反解回 WGS84，重新拼出纠偏后的 rectangle。
+   * 修正：取瓦片中心点的 GCJ-02 偏移量，均匀应用到四角。
+   * 避免四角分别变换导致的非线性扭曲和瓦片错位。
    */
   tileXYToRectangle(x, y, level, result) {
     const rect = super.tileXYToRectangle(x, y, level, result);
 
-    // rect 的经纬度被“误认为”是 WGS84；我们将其当作 GCJ-02 来做反解
-    const sw = gcj02ToWgs84(
-      Cesium.Math.toDegrees(rect.west),
-      Cesium.Math.toDegrees(rect.south)
-    );
-    const ne = gcj02ToWgs84(
-      Cesium.Math.toDegrees(rect.east),
-      Cesium.Math.toDegrees(rect.north)
-    );
+    // 瓦片中心点（度）
+    const centerLon = Cesium.Math.toDegrees((rect.west + rect.east) / 2.0);
+    const centerLat = Cesium.Math.toDegrees((rect.south + rect.north) / 2.0);
 
-    rect.west = Cesium.Math.toRadians(sw[0]);
-    rect.south = Cesium.Math.toRadians(sw[1]);
-    rect.east = Cesium.Math.toRadians(ne[0]);
-    rect.north = Cesium.Math.toRadians(ne[1]);
+    // 中心点从 GCJ-02 反解到 WGS84，得到偏移量
+    const [wgsLon, wgsLat] = gcj02ToWgs84(centerLon, centerLat);
+    const dLon = wgsLon - centerLon;
+    const dLat = wgsLat - centerLat;
+
+    // 均匀偏移四角（保持矩形不变形）
+    rect.west  += Cesium.Math.toRadians(dLon);
+    rect.east  += Cesium.Math.toRadians(dLon);
+    rect.south += Cesium.Math.toRadians(dLat);
+    rect.north += Cesium.Math.toRadians(dLat);
 
     return rect;
   }

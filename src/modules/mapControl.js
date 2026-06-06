@@ -1,5 +1,4 @@
 import * as Cesium from "cesium";
-import { Gcj02CorrectedWebMercatorTilingScheme } from "./tilingSchemeGcj02.js";
 
 /**
  * 底图切换管理器
@@ -57,18 +56,11 @@ export function createBaseMapManager(viewer) {
   }
 
   function createGaodeProvider() {
-    // 高德底图是 GCJ-02，直接叠加会与 WGS84 空间要素产生偏移。
-    // 这里通过自定义 tilingScheme 把瓦片“反解”到 WGS84，使渲染侧完成纠偏。
-    const tilingScheme = new Gcj02CorrectedWebMercatorTilingScheme();
-
+    // 高德底图是 GCJ-02 坐标系，直接叠加到 WGS84 会有 ~300-500m 系统偏移。
+    // 这是所有 WGS84 查看器加载 GCJ-02 瓦片的正常行为，瓦片之间完美对齐。
+    // 需要精确叠加时请使用天地图（WGS84 原生）。
     return new Cesium.UrlTemplateImageryProvider({
-      // 说明：
-      // - 许多公共瓦片服务未开放 CORS，Cesium 在 WebGL 上传纹理时会导致“有请求但不出图”
-      // - 这里默认走同源反代：/gaode/...（Vite dev 与 Nginx 都可配置反向代理）
-      // 高德常用瓦片规则（矢量路网/含注记）：wprd0{1-4}.is.autonavi.com/appmaptile
-      // 这里固定走 /gaode 反代到 wprd01，避免跨域与直连不稳定问题
       url: "/gaode/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}",
-      tilingScheme,
       maximumLevel: 19,
       credit: "Gaode"
     });
