@@ -1,0 +1,3 @@
+__pycache__/
+data/beijing_match-*
+data/sample_trips.geojson

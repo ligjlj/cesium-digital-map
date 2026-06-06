@@ -1,11 +1,10 @@
 """
-FastAPI 后端 — gotrackit 路网匹配服务 (Phase 2)
+FastAPI 后端 — gotrackit 路网匹配 + 最短路径规划
 启动: uvicorn main:app --host 0.0.0.0 --port 8765 --reload
 """
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,12 +18,12 @@ from match_engine import (
     get_or_load_network,
     generate_synthetic_gps,
     run_map_match,
-    _clean_match_outputs,
     _match_link_file,
     _match_gps_file,
     _match_prj_file,
     _geojson_from_file,
 )
+from route_engine import RouteError, plan_shortest_route
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +41,7 @@ async def lifespan(app: FastAPI):
     logger.info("服务关闭")
 
 
-app = FastAPI(title="gotrackit Map Matching Service", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="gotrackit Map Matching Service", version="0.3.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -52,9 +51,20 @@ class GenerateRequest(BaseModel):
     num_trips: int = 3
     points_per_trip: int = 50
 
+
 class MatchRequest(BaseModel):
     num_trips: int = 3
-    points_per_trip: int = 50
+    points_per_trip: int = 80
+
+
+class LonLat(BaseModel):
+    lng: float
+    lat: float
+
+
+class RouteRequest(BaseModel):
+    origin: LonLat
+    destination: LonLat
 
 
 # ── 端点 ────────────────────────────────────────────────
@@ -63,7 +73,7 @@ class MatchRequest(BaseModel):
 async def health():
     return {
         "status": "ok",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "network_exists": NETWORK_FILE.exists(),
         "trips_cached": SAMPLE_TRIPS_FILE.exists(),
     }
@@ -91,37 +101,29 @@ async def generate_trips(req: GenerateRequest):
 
 @app.post("/api/match")
 async def match_trips(req: MatchRequest):
-    """
-    执行路网匹配，返回完整 GeoJSON。
-
-    响应包含:
-    - summary: 匹配统计摘要
-    - trips[]: 每个 agent 的 matched_links, corrected_traj, prj_points (GeoJSON FeatureCollection)
-    - network: 路网 GeoJSON FeatureCollection
-    - raw_trips: 原始轨迹 GeoJSON FeatureCollection
-    """
+    """执行路网匹配，返回完整 GeoJSON"""
     try:
         if not NETWORK_FILE.exists():
             raise HTTPException(400, f"路网不存在: {NETWORK_FILE}")
 
         net = get_or_load_network()
-
-        import geopandas as gpd
-        if SAMPLE_TRIPS_FILE.exists():
-            gdf = gpd.read_file(str(SAMPLE_TRIPS_FILE))
-        else:
-            gdf = generate_synthetic_gps(num_trips=req.num_trips, points_per_trip=req.points_per_trip)
-
+        gdf = generate_synthetic_gps(
+            num_trips=req.num_trips,
+            points_per_trip=req.points_per_trip,
+        )
         result = run_map_match(net, gdf)
 
         return JSONResponse({
             "status": "ok",
+            "crs": "GCJ-02",
             "summary": result.summary,
             "trips": [
                 {
                     "agent_id": t.agent_id,
                     "point_count": t.point_count,
                     "match_link_count": t.match_link_count,
+                    "unique_link_count": t.unique_link_count,
+                    "avg_proj_distance_m": t.avg_proj_distance_m,
                     "match_rate": t.match_rate,
                     "total_length_km": t.total_length_km,
                     "matched_links": t.matched_links_geojson,
@@ -140,9 +142,31 @@ async def match_trips(req: MatchRequest):
         raise HTTPException(500, str(e))
 
 
+@app.post("/api/route")
+async def plan_route(req: RouteRequest):
+    """最短路径规划：经纬度起终点 → Dijkstra → GeoJSON"""
+    try:
+        result = plan_shortest_route(
+            origin_lon=req.origin.lng,
+            origin_lat=req.origin.lat,
+            dest_lon=req.destination.lng,
+            dest_lat=req.destination.lat,
+        )
+        return JSONResponse({
+            "status": "ok",
+            "crs": "GCJ-02",
+            "route": result.route_geojson,
+            "summary": result.summary,
+        })
+    except RouteError as e:
+        raise HTTPException(e.status_code, str(e))
+    except Exception as e:
+        logger.exception("路径规划失败")
+        raise HTTPException(500, str(e))
+
+
 @app.get("/api/match/{agent_id}/links")
 async def get_match_links(agent_id: str):
-    """获取指定 agent 的匹配路段 GeoJSON"""
     f = _match_link_file(agent_id)
     if not f.exists():
         raise HTTPException(404, f"未找到 {agent_id} 的匹配结果，请先执行 /api/match")
@@ -151,7 +175,6 @@ async def get_match_links(agent_id: str):
 
 @app.get("/api/match/{agent_id}/trajectory")
 async def get_corrected_traj(agent_id: str):
-    """获取指定 agent 的纠偏轨迹 GeoJSON"""
     f = _match_gps_file(agent_id)
     if not f.exists():
         raise HTTPException(404, f"未找到 {agent_id} 的匹配结果")
@@ -160,7 +183,6 @@ async def get_corrected_traj(agent_id: str):
 
 @app.get("/api/match/{agent_id}/prj")
 async def get_prj_points(agent_id: str):
-    """获取指定 agent 的投影点 GeoJSON"""
     f = _match_prj_file(agent_id)
     if not f.exists():
         raise HTTPException(404, f"未找到 {agent_id} 的匹配结果")
@@ -169,10 +191,9 @@ async def get_prj_points(agent_id: str):
 
 @app.get("/api/network")
 async def get_network():
-    """获取完整路网 GeoJSON"""
     if not NETWORK_FILE.exists():
         raise HTTPException(404, "路网不存在")
-    return JSONResponse(_geojson_from_file(NETWORK_FILE))
+    return JSONResponse(_geojson_from_file(NETWORK_FILE, to_wgs84=False))
 
 
 @app.get("/api/network/status")
