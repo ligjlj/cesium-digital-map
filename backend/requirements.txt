@@ -1,0 +1,7 @@
+fastapi>=0.110.0
+uvicorn>=0.29.0
+gotrackit>=0.3.0
+geopandas>=0.14.0
+geopy>=2.4.0
+pykalman>=0.9.7
+pydantic>=2.0.0
